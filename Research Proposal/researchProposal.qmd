@@ -1,0 +1,227 @@
+---
+title: "Research Proposal"
+author: "Kanika Chopra"
+format: pdf
+editor: visual
+fontsize: 11pt
+geometry: margin=0.9in
+bibliography: references.bib
+---
+
+```{r, message=FALSE, echo=FALSE}
+library(ggplot2)
+library(tidyverse)
+library(gridExtra)
+library(grid)
+library(geofacet)
+library(patchwork)
+library(ggpmisc)
+library(dplyr)
+```
+
+# Research Question
+
+The research question of interest is *how does the time to exoneration differ based on demographic, geographic and crime factors?* This analysis aims to consider factors including race/ethnicity, age, gender, State and the type of crime to determine which significantly affect time-to-exoneration.
+
+Wrongful sentences can take away year's from an individual's life and isolate them to the harsh environment of prison. This can have catastrophic mental and physical impacts on these individuals and their families by separating them from their loved ones and their comforts of home. On top of that, fighting for exoneration can take years and can be an expensive and mentally-exhausting process. Exoneration can be defined as a legal determination occurring when a "person who has been convicted of a crime is officially cleared after new evidence of innocence becomes available".
+
+Previous literature has investigated the impact of race and ethnicity on time-to-exoneration through a lens of focal concerns [@braden2021pursuit]. @braden2021pursuit has show that black exonerees experienced a longer-time to exoneration than white exonerees and that Hispanic exonerees experienced the shortest time-to-exoneration. Furthermore, @itskovich2023haven have shown that Blacks in the United States are at greater risk of being wrongfully convicted for crimes such as murder and rape in comparison to White defendents. This motivates this research to further investigate the effects of gender, race/ethnicity, age, type of crime and State to determine the impact on time-to-exoneration.
+
+# Data
+
+The dataset I am using is from the [National Registry of Exonerations from the United States](https://github.com/kanikadchopra/ExonerationPred/blob/main/Data/exonneration.csv). This dataset has data on all of the 3,292 exonerations since 1989. My dependent variable is the time to exoneration (years). The independent variables are Race/Ethnicity, Gender, Age, Crime, and State.
+
+# Proposed Model
+
+The proposed model is given below:
+
+$$
+\mu_i = \beta_0 + \beta_1x_{\text{Age}} + \beta_2x_\text{Gender} + \alpha_{r[i]}^{race/ethnicity} + \alpha_{s[i]}^{state} + \alpha_{c[i]}^{crime}
+$$
+
+$$
+log(t_i) \sim N(\mu_i, \sigma^2)
+$$
+
+Let $t_i$ represent the time-to-exoneration. We have a continuous variable for Age and an indicator variable for Gender. We fit Gender as an indicator variable since there are only two categories and although our data is imbalanced, Females still make up 12% of our data so it is not a very low proportion. We fit hierarchical variables for Race/Ethnicity, Crime and State. This is because in each of these categories, as shown in our EDA below, we see low proportions for some groups, i.e. Native Americans are 0.6% of our data and Asians are 0.9% of the data. As for States, we have some states with only one exonoree and similarly with Crime, we only have one exonoree for cases such as Harassment or Non-violent Attempt. More analysis would be conducted to determine appropriate interaction terms as well (i.e. Race and State, Race and Crime, etc.) Further analysis would also be conducted to determine suitable priors/parameters for this base model, i.e. setting Normal priors.
+
+# Exploratory Data Analysis
+
+```{r, echo=FALSE}
+data <- read.csv("exonneration.csv")
+```
+
+There are 19 columns on First and Last Name, Age, Race/Ethnicity, State, County of Crime, Tags, Official Misconduct (OM) Tags, Crime, Sentence, Convicted Year, Exonerated Year and various columns for the reason they were exonerated including DNA, Mistaken Witness Identification, etc.
+
+## Feature Engineering
+
+Two features that are created within our dataset are Time to Exoneration and Gender. In our model, we are interested in modelling $log(Time)$. However, we have some data that has Time to Exonerated as 0 so to remedy this issue, we replace these values with 0.5, making the assumption that the minimum is half a year between Time of Conviction to Time of Exoneration. Gender is stored in the tags column us "F" so an indicator variable is created of whether "F" exists in the Tags.
+
+```{r, echo=FALSE}
+data$Time <- data$Exonerated - data$Convicted
+data$Time <- replace(data$Time, data$Time == 0, 0.5)
+data$Time <- log(data$Time)
+```
+
+```{r, echo=FALSE}
+data$Gender <- str_detect(data$Tags, 'F')
+data$Gender <- ifelse(data$Gender == TRUE, "F", "M")
+```
+
+## **Missing Data**
+
+```{r, echo=FALSE}
+missing = data.frame(colSums(is.na(data)))
+```
+
+```{r, echo=FALSE, output=FALSE}
+table(data[is.na(data$Age),]$Race)
+table(data[is.na(data$Age),]$Gender)
+table(data[is.na(data$Age),]$Crime)
+```
+
+We are missing 27 rows of Age and 1 row of Exonerated and Convicted year. The missing data does not seem to related to a certain Race/Ethnicity, Gender or Crime but is spread out proportionately between each category. Since it is only approximately 0.82% of our data, we drop these rows.
+
+```{r, echo=FALSE}
+data <- na.omit(data)
+```
+
+## Data Cleaning
+
+The following steps were also taken to simplify and clean our dataset:
+
+1.  **Filtering Race and Ethnicity Groups**: From our race/ethnicity category, we have mixed combinations, i.e. "Native American, White". For simplicity purposes, we remove any mixed combinations and unknown values. This leaves us with 3,240 exonerees.
+2.  **State Categories:** From our data, we also see that a lot of the states are written as "NC" or "F-NC" so we remove the "F-" to keep the data uniform.
+
+```{r, echo=FALSE, output=FALSE}
+unique(data$Race)
+```
+
+```{r, echo=FALSE}
+# Filter by races
+data <- data |>
+  filter(Race %in% c("Black", "White", "Asian", "Hispanic", "Native American"))
+```
+
+```{r, echo=FALSE}
+# Fix State formatting 
+data$ST <- gsub('F-', '', data$ST)
+```
+
+## Exploring Variables of Interest
+
+We subset our dataset to the columns of interest, i.e. Race/Ethnicity, Age, Gender, Crime, ST and Time-to-Exoneration.
+
+```{r, echo=FALSE, output=FALSE}
+# Select only variables of interest
+data <- data |>
+  select(c("Race", "Age", "Gender", "Crime", "ST", "Time")) 
+
+dim(data)
+```
+
+### Race and Age Distributions
+
+```{r, echo=FALSE, out.width = "100%", out.height="30%", fig.align='center'}
+race_dist <- data |> ggplot(aes(x=Race, fill=Race)) + geom_bar() + coord_flip() + labs(y="")
+gender_dist <- data |> ggplot(aes(x=Gender, fill=Gender)) + geom_bar() + coord_flip() + labs(x='Number of Exonerees') + labs(y="", tag="Figure 1") + theme(plot.tag.position="bottom")
+
+grid.arrange(race_dist, gender_dist, ncol=1, top=textGrob("Number of Exonerees across Race/Ethnicity and Gender"), heights=c(2,1))
+```
+
+We can clearly see that our data is skewed towards having more Black folk, then White folk with much lower proportions for the remaining races and ethnicities. We also see that the majority of our data are male exonorees than female exonorees.
+
+### Crimes by Race/Ethnicity
+
+```{r, echo=FALSE, message=FALSE, fig.align='center', fig.width=10}
+# Shorten Drug Possession or Sale to Drug
+data |> 
+  group_by(Race, Crime) |> 
+  summarize(Total=n()) |> 
+  top_n(3) |> 
+  ggplot(aes(x=Crime, y=Total, fill=Crime)) +
+  geom_col() + 
+  coord_flip() +
+  theme(legend.position = "none",
+  plot.tag.position = "bottom") +
+  facet_wrap(~Race, ncol=3, scale='free') + 
+  labs(title="Distribution of Top 3 Crimes", 
+       subtitle="By Race/Ethnicity",
+       y="Number of Crimes", tag = "Figure 2")
+
+```
+
+We look at the top 3 most common crimes for each race. Overall, the most common crimes are Murder, Drug Possession or Sale, Sexual Assault, and Child Sex Abuse. We can see some clear differences here between the types of crime most commonly accused of for the exonerees. We have that Drug Posession or Sale is much higher among Black and Hispanic exonerees while it is very low for the remaining races/ethnicities. We also observe that Assault is mainly observed by Native Americans (albeit 2 exonorees) and similarly for Fraud with Asian ethnicities. We also observe that White exonorees are the most common for Child Sex Abuse.
+
+\newpage
+
+#### Age Distribution by Race/Ethnicity
+
+```{r, echo=FALSE, fig.align='center'}
+age_race <- ggplot(data, aes(x=Age, y=Race, fill=Race)) + 
+  geom_boxplot() +
+  theme(legend.position="none") + 
+  labs(title="Distribution of Conviction Age", subtitle="By Race/Ethnicity", y="Race/Ethnicity")
+
+age_race_summary <- data |>
+  group_by(Race) |> 
+  dplyr::summarize(min = min(Age), "1st Qu." = quantile(Age, 0.25), med = median(Age), "3rd Qu." = quantile(Age, 0.75), max=max(Age))
+names(age_race_summary) <- c("Race/Ethnicity", "Min", "1st Qu.", "Median", "3rd Qu.", "Max") 
+
+age_race_table <- ggplot() + theme_void() +
+  annotate(geom="table",
+          x=1, y=1,
+           label=list(age_race_summary),
+          size=2) + labs(tag="Figure 3") + theme(plot.tag.position="bottom")
+
+age_race/age_race_table
+```
+
+We see that the age range for Asians is much larger than the remaining Race/Ethnicities. This however may also be due to the fact that we only have 31 exonerees within this group. We can more clearly see the differences in data with Black, White and Hispanic exonorees being as young as 11, 12, 13 respectively. We also see that the median age for White and Asian exonorees is closer to 30 in comparison to Black, Hispanic and Native American exonorees having median ages of 23-25.
+
+### Race/Ethnicity by State
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.align='center', fig.width=10, fig.height=6.5}
+data |> 
+  group_by(ST, Race) |>
+  dplyr::summarize(Total=n()) |>
+  ggplot(aes(Race, Total, fill=Race)) +
+  geom_col() +
+  coord_flip() + 
+  theme_bw() + 
+  facet_geo(~ ST, grid="us_state_grid2", label="name") +
+  theme(legend.position="bottom",
+        axis.title.y=element_blank(),
+        strip.text.x = element_text(size=6),
+        axis.text.x = element_text(angle=90, hjust=1),
+        plot.tag.position="bottom") +
+  labs(title="Distribution of Race/Ethnicity", subtitle="By State in the United States",
+       x="Number of Exonerees", y="Race/Ethnicity", color=NULL, tag="Figure 4")
+```
+
+It would also be interesting to see how the race distribution differs among states - this is shown in Figure 4. We observe that a higher proportion of Black exonerees come from Illinois, New York, and Texas. The remaining states seem to have lower amounts of data. We can also see some states with more White exonerees than Black exonerees including Florida, Wisconsin and Oregon. As for Hispanic ethnicities, the majority of their data seems to come from Illinois, New York, California and Texas.
+
+#### Time to Exoneration
+
+Now, time-to-exoneration on the other hand is a continuous variable, so below we have the summary of this value as well as the distribution plotted. We plot this on the regular time-scale for easier interpretation. We also want to see how the distribution of time differs based on Race. These two distributions are shown in Figure 5.
+
+```{r, echo=FALSE, fig.align='center', fig.height=5}
+time_dist <- data |>
+  ggplot(aes(x=exp(Time))) + geom_histogram(bins=30, fill="#69b3a2", color="#e9ecef") + labs(x="Time") + theme(legend.position = "none") + 
+  labs(title="Time-to-Exoneration Distribution", y="Number of Exonorees", x="Time")
+
+race_time <- ggplot(data, aes(x=exp(Time), y=Race, fill=Race)) + geom_boxplot() + labs(x="Time", subtitle="By Race/Ethnicity", y="Race/Ethnicity", tag="Figure 5") + theme(legend.position = "none", plot.tag.position="bottom")
+
+
+
+time_dist/race_time
+```
+
+We see more concentration around lower time-to-exoneration values, i.e. around 1-5 years. Our distribution is right-skewed with higher time-to-exoneration values being less common. We do observe that there are some cases where the time-to-exoneration is as high as 60 years. As for our comparison with race, we see that the higher values of Time seem to be associated with Black exonorees. Furthermore, Native American and Black folk have the highest medians for this time whereas Asians have the lowest time-to-exoneration. We also observe that Hispanics and White folk have similar distributions for Time with very similar median values.
+
+\newpage
+
+### References
+
+::: {#refs}
+:::
