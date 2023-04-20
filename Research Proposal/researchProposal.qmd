@@ -213,7 +213,6 @@ time_dist <- data |>
 race_time <- ggplot(data, aes(x=exp(Time), y=Race, fill=Race)) + geom_boxplot() + labs(x="Time", subtitle="By Race/Ethnicity", y="Race/Ethnicity", tag="Figure 5") + theme(legend.position = "none", plot.tag.position="bottom")
 
 
-
 time_dist/race_time
 ```
 
